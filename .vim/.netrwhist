@@ -1,0 +1,5 @@
+let g:netrw_dirhistmax  =10
+let g:netrw_dirhist_cnt =3
+let g:netrw_dirhist_1='/home/yanzhan2/ece391/workdir/KindratenkOS/student-distrib'
+let g:netrw_dirhist_2='/home/yanzhan2/ece391/workdir/KindratenkOS'
+let g:netrw_dirhist_3='/home/yanzhan2/ece391/workdir/KindratenkOS/syscalls'

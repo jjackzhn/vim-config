@@ -5,6 +5,8 @@ set number
 set expandtab
 set autoindent
 set smartindent
+set hlsearch
+set backspace=2
 
 set statusline+=%#warningmsg#
 set statusline+=%{SyntasticStatuslineFlag()}
