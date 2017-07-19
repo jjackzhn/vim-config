@@ -14,6 +14,31 @@ endif
 " - This will enable spell checking e.g. in toplevel of included files
 syntax spell toplevel
 
+" {{{1 Improve handling of newcommand and newenvironment commands
+
+" Allow arguments in newenvironments
+syntax region texEnvName contained matchgroup=Delimiter
+      \ start="{"rs=s+1  end="}"
+      \ nextgroup=texEnvBgn,texEnvArgs contained skipwhite skipnl
+syntax region texEnvArgs contained matchgroup=Delimiter
+      \ start="\["rs=s+1 end="]"
+      \ nextgroup=texEnvBgn,texEnvArgs
+      \ skipwhite skipnl
+syntax cluster texEnvGroup add=texDefParm,texNewEnv,texComment
+
+" Add support for \renewcommand and \renewenvironment
+syntax match texNewCmd "\\renewcommand\>"
+      \ nextgroup=texCmdName skipwhite skipnl
+syntax match texNewEnv "\\renewenvironment\>"
+      \ nextgroup=texEnvName skipwhite skipnl
+
+" Match nested DefParms
+syntax match texDefParmNested contained "##\+\d\+"
+highlight def link texDefParmNested Identifier
+syntax cluster texEnvGroup add=texDefParmNested
+syntax cluster texCmdGroup add=texDefParmNested
+
+" }}}1
 " {{{1 General match improvements
 
 syntax match texInputFile /\\includepdf\%(\[.\{-}\]\)\=\s*{.\{-}}/
@@ -116,6 +141,27 @@ if get(g:, 'tex_fast', 'r') =~# 'r'
 endif
 
 " }}}1
+" {{{1 Add support for array package
+
+"
+" The following code changes inline math so as to support the column
+" specifiers [0], e.g.
+"
+"   \begin{tabular}{*{3}{>{$}c<{$}}}
+"
+" [0]: https://en.wikibooks.org/wiki/LaTeX/Tables#Column_specification_using_.3E.7B.5Ccmd.7D_and_.3C.7B.5Ccmd.7D
+"
+
+if exists('b:vimtex.packages.array') && get(g:, 'tex_fast', 'M') =~# 'M'
+  syntax clear texMathZoneX
+  if has('conceal') && &enc ==# 'utf-8' && get(g:, 'tex_conceal', 'd') =~# 'd'
+    syntax region texMathZoneX matchgroup=Delimiter start="\([<>]{\)\@<!\$" skip="\%(\\\\\)*\\\$" matchgroup=Delimiter end="\$" end="%stopzone\>" concealends contains=@texMathZoneGroup
+  else
+    syntax region texMathZoneX matchgroup=Delimiter start="\([<>]{\)\@<!\$" skip="\%(\\\\\)*\\\$" matchgroup=Delimiter end="\$" end="%stopzone\>" contains=@texMathZoneGroup
+  endif
+endif
+
+" }}}1
 " {{{1 Add support for cleveref package
 if get(g:, 'tex_fast', 'r') =~# 'r'
   syntax region texRefZone matchgroup=texStatement
@@ -157,7 +203,8 @@ syntax match texZone "\\lstinline\s*\(\[.*\]\)\={.\{-}}"
 " {{{1 Nested syntax highlighting for dot
 unlet b:current_syntax
 syntax include @DOT syntax/dot.vim
-syntax region texZone
+syntax cluster texDocGroup add=texZoneDot
+syntax region texZoneDot
       \ start="\\begin{dot2tex}"rs=s
       \ end="\\end{dot2tex}"re=e
       \ keepend
@@ -169,14 +216,15 @@ let b:current_syntax = 'tex'
 " {{{1 Nested syntax highlighting for lualatex
 unlet b:current_syntax
 syntax include @LUA syntax/lua.vim
-syntax region texZone
+syntax cluster texDocGroup add=texZoneLua
+syntax region texZoneLua
       \ start='\\begin{luacode\*\?}'rs=s
       \ end='\\end{luacode\*\?}'re=e
       \ keepend
       \ transparent
       \ contains=texBeginEnd,@LUA
-syntax match texStatement '\\\(directlua\|luadirect\)' nextgroup=texZoneLua
-syntax region texZoneLua matchgroup=Delimiter
+syntax match texStatement '\\\(directlua\|luadirect\)' nextgroup=texZoneLuaArg
+syntax region texZoneLuaArg matchgroup=Delimiter
       \ start='{'
       \ end='}'
       \ contained
@@ -187,7 +235,8 @@ let b:current_syntax = 'tex'
 " {{{1 Nested syntax highlighting for gnuplottex
 unlet b:current_syntax
 syntax include @GNUPLOT syntax/gnuplot.vim
-syntax region texZone
+syntax cluster texDocGroup add=texZoneGnuplot
+syntax region texZoneGnuplot
       \ start='\\begin{gnuplot}\(\_s*\[\_[\]]\{-}\]\)\?'rs=s
       \ end='\\end{gnuplot}'re=e
       \ keepend
@@ -196,10 +245,33 @@ syntax region texZone
 let b:current_syntax = 'tex'
 
 " }}}1
+" {{{1 Nested syntax highlighting for asymptote
+unlet b:current_syntax
+try
+  syntax include @ASYMPTOTE syntax/asy.vim
+  syntax cluster texDocGroup add=texZoneAsymptote
+  syntax region texZoneAsymptote
+        \ start='\\begin{asy}'rs=s
+        \ end='\\end{asy}'re=e
+        \ keepend
+        \ transparent
+        \ contains=texBeginEnd,texBeginEndModifier,@ASYMPTOTE
+  syntax region texZoneAsymptote
+        \ start='\\begin{asydef}'rs=s
+        \ end='\\end{asydef}'re=e
+        \ keepend
+        \ transparent
+        \ contains=texBeginEnd,texBeginEndModifier,@ASYMPTOTE
+catch /^Vim.*E484/
+endtry
+let b:current_syntax = 'tex'
+
+" }}}1
 " {{{1 Nested syntax highlighting for minted
 
 " First set all minted environments to listings
-syntax region texZone
+syntax cluster texFoldGroup add=texZoneMinted
+syntax region texZoneMinted
       \ start="\\begin{minted}\_[^}]\{-}{\w\+}"rs=s
       \ end="\\end{minted}"re=e
       \ keepend
@@ -210,6 +282,9 @@ for s:entry in get(g:, 'vimtex_syntax_minted', [])
   let s:lang = s:entry.lang
   let s:syntax = get(s:entry, 'syntax', s:lang)
 
+  let s:group_name = 'texZoneMinted' . toupper(s:lang[0]) . s:lang[1:]
+  execute 'syntax cluster texFoldGroup add=' . s:group_name
+
   unlet b:current_syntax
   execute 'syntax include @' . toupper(s:lang) 'syntax/' . s:syntax . '.vim'
 
@@ -218,7 +293,7 @@ for s:entry in get(g:, 'vimtex_syntax_minted', [])
           \ 'remove=' . join(s:entry.ignore, ',')
   endif
 
-  execute 'syntax region texZone'
+  execute 'syntax region' s:group_name
         \ 'start="\\begin{minted}\_[^}]\{-}{' . s:lang . '}"rs=s'
         \ 'end="\\end{minted}"re=e'
         \ 'keepend'
@@ -229,7 +304,7 @@ for s:entry in get(g:, 'vimtex_syntax_minted', [])
   " Support for custom environment names
   "
   for s:env in get(s:entry, 'environments', [])
-    execute 'syntax region texZone'
+    execute 'syntax region' s:group_name
           \ 'start="\\begin{' . s:env . '}"rs=s'
           \ 'end="\\end{' . s:env . '}"re=e'
           \ 'keepend'
@@ -237,7 +312,7 @@ for s:entry in get(g:, 'vimtex_syntax_minted', [])
           \ 'contains=texBeginEnd,@' . toupper(s:lang)
 
     " Match starred environments with options
-    execute 'syntax region texZone'
+    execute 'syntax region' s:group_name
           \ 'start="\\begin{' . s:env . '\*}\s*{\_.\{-}}"rs=s'
           \ 'end="\\end{' . s:env . '\*}"re=e'
           \ 'keepend'

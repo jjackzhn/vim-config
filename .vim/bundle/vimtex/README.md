@@ -45,19 +45,32 @@ custom mappings.  All features are enabled by default, but each feature may be
 disabled if desired.
 
 - Document compilation with
-  [latexmk](http://users.phys.psu.edu/~collins/software/latexmk-jcc/)
+  [latexmk](http://users.phys.psu.edu/~collins/software/latexmk-jcc/) or
+  [latexrun](https://github.com/aclements/latexrun)
+- LaTeX log parsing for quickfix entries using
+  - internal method
+  - [pplatex](https://github.com/stefanhepp/pplatex)
 - Compilation of selected part of document
 - Support for several PDF viewers with forward search
   - [MuPDF](http://www.mupdf.com/)
-  - [Zathura](https://pwmt.org/projects/zathura/)
   - [Okular](https://okular.kde.org/)
   - [qpdfview](https://launchpad.net/qpdfview)
+  - [Skim](http://skim-app.sourceforge.net/)
   - [SumatraPDF](http://www.sumatrapdfreader.org/free-pdf-reader.html)
+  - [Zathura](https://pwmt.org/projects/zathura/)
   - Other viewers are supported through a general interface
-- Completion of citations, labels, and file names for figures
+- Completion of
+  - citations
+  - labels
+  - commands
+  - file names for figures, input/include, includepdf, includestandalone
+  - glossary entries
+  - package and documentclass names based on available `.sty` and `.cls` files
 - Document navigation through
   - table of content
   - table of labels
+  - enhanced `gf` command
+- Easy access to (online) documentation of packages
 - Word count (through `texcount`)
 - Motions
   - Move between sections with `[[`, `[]`, `][`, `]]`
@@ -67,10 +80,13 @@ disabled if desired.
   - `id ad` Delimiters
   - `ie ae` LaTeX environments
   - `i$ a$` Inline math structures
+  - `iP aP` Sections
 - Other mappings
-  - Delete the surrounding command or environment with `dsc`/`dse`/`ds$`
-  - Change the surrounding command or environment with `csc`/`cse`/`cs$`
-  - Toggle starred environment with `tse`
+  - Delete the surrounding command, environment or delimiter with
+    `dsc`/`dse`/`ds$`/`dsd`
+  - Change the surrounding command, environment or delimiter with
+    `csc`/`cse`/`cs$`/`csd`
+  - Toggle starred command or environment with `tsc`/`tse`
   - Toggle between e.g. `()` and `\left(\right)` with `tsd`
   - Close the current environment/delimiter in insert mode with `]]`
   - Insert new command with `<F7>`
@@ -82,8 +98,8 @@ disabled if desired.
   - Support for `biblatex`/`natbib` package
   - Support for `cleveref` package
   - Support for `listings` package
-  - Support for `minted` package
-  - Support for `dot2tex` with nested syntax highlighting
+  - Nested syntax highlighting (`minted`, `dot2tex`, `lualatex`,
+    `gnuplottex`, `asymptote`)
 - Support for multi-file project packages
   - [import](http://ctan.uib.no/macros/latex/contrib/import/import.pdf)
   - [subfiles](http://ctan.uib.no/macros/latex/contrib/subfiles/subfiles.pdf)
@@ -123,8 +139,8 @@ The following are some alternative LaTeX plugins for Vim:
     - vimtex builds upon Vim principles: It provides text objects for
       environments, inline math, it provides motions for sections and
       paragraphs
-    - vimtex uses `latexmk` for compilation with a callback feature to get
-      instant feedback on compilation errors
+    - vimtex uses `latexrun` or `latexmk` for compilation with a callback
+      feature to get instant feedback on compilation errors
     - vimtex is very modular: if you don't like a feature, you can turn it off.
 
 - [AutomaticTexPlugin](http://atp-vim.sourceforge.net)

@@ -4,22 +4,6 @@
 " Email:      karl.yngve@gmail.com
 "
 
-function! vimtex#complete#init_options() " {{{1
-  call vimtex#util#set_default('g:vimtex_complete_enabled', 1)
-  if !g:vimtex_complete_enabled | return | endif
-
-  call vimtex#util#set_default('g:vimtex_complete_close_braces', 0)
-  call vimtex#util#set_default('g:vimtex_complete_recursive_bib', 0)
-endfunction
-
-" }}}1
-function! vimtex#complete#init_script() " {{{1
-  if !g:vimtex_complete_enabled | return | endif
-
-  let s:completers = [s:bib, s:ref, s:img, s:inc, s:pdf, s:sta, s:gls]
-endfunction
-
-" }}}1
 function! vimtex#complete#init_buffer() " {{{1
   if !g:vimtex_complete_enabled | return | endif
 
@@ -47,7 +31,7 @@ function! vimtex#complete#omnifunc(findstart, base) " {{{1
         if l:line =~# l:pattern
           let s:completer = l:completer
           while l:pos > 0
-            if l:line[l:pos - 1] =~# '{\|,\|\['
+            if l:line[l:pos - 1] =~# '{\|,\|\[\|\\'
                   \ || l:line[l:pos-2:l:pos-1] ==# ', '
               let s:completer.context = matchstr(l:line, '\S*$')
               return l:pos
@@ -61,9 +45,11 @@ function! vimtex#complete#omnifunc(findstart, base) " {{{1
     endfor
     return -3
   else
-    return exists('s:completer')
+    if !exists('s:completer') | return [] | endif
+
+    return g:vimtex_complete_close_braces && get(s:completer, 'inside_braces', 1)
           \ ? s:close_braces(s:completer.complete(a:base))
-          \ : []
+          \ : s:completer.complete(a:base)
   endif
 endfunction
 
@@ -74,7 +60,7 @@ endfunction
 "
 " {{{1 Bibtex
 
-let s:bib = {
+let s:completer_bib = {
       \ 'patterns' : [
       \   '\v\\\a*cite\a*%(\s*\[[^]]*\]){0,2}\s*\{[^}]*$',
       \   '\v\\bibentry\s*\{[^}]*$',
@@ -86,7 +72,7 @@ let s:bib = {
       \ 'bstfile' :  expand('<sfile>:p:h') . '/vimcomplete',
       \}
 
-function! s:bib.init() dict " {{{2
+function! s:completer_bib.init() dict " {{{2
   " Check if bibtex is executable
   if !executable('bibtex')
     let self.enabled = 0
@@ -113,7 +99,7 @@ function! s:bib.init() dict " {{{2
   endif
 endfunction
 
-function! s:bib.complete(regexp) dict " {{{2
+function! s:completer_bib.complete(regexp) dict " {{{2
   let self.candidates = []
 
   let self.type_length = 4
@@ -137,7 +123,7 @@ function! s:bib.complete(regexp) dict " {{{2
   return self.candidates
 endfunction
 
-function! s:bib.search(regexp) dict " {{{2
+function! s:completer_bib.search(regexp) dict " {{{2
   let res = []
 
   " The bibtex completion seems to require that we are in the project root
@@ -162,11 +148,10 @@ function! s:bib.search(regexp) dict " {{{2
           \ ], tmp.aux)
 
     " Create the temporary bbl file
-    let exe = {}
-    let exe.cmd = 'bibtex -terse ' . tmp.aux
-    let exe.bg = 0
-    let exe.system = 1
-    call vimtex#util#execute(exe)
+    call vimtex#process#run('bibtex -terse ' . fnameescape(tmp.aux), {
+          \ 'background' : 0,
+          \ 'silent' : 1,
+          \})
 
     " Parse temporary bbl file
     let lines = map(readfile(tmp.bbl), 's:tex2unicode(v:val)')
@@ -219,7 +204,7 @@ function! s:bib.search(regexp) dict " {{{2
   return res
 endfunction
 
-function! s:bib.find_bibs() dict " {{{2
+function! s:completer_bib.find_bibs() dict " {{{2
   "
   " Search for added bibliographies
   " * Parse commands such as \bibliography{file1,file2.bib,...}
@@ -244,7 +229,7 @@ endfunction
 " }}}1
 " {{{1 Labels
 
-let s:ref = {
+let s:completer_ref = {
       \ 'patterns' : [
       \   '\v\\v?%(auto|eq|[cC]?%(page)?|labelc)?ref%(\s*\{[^}]*|range\s*\{[^,{}]*%(\}\{)?)$',
       \   '\\hyperref\s*\[[^]]*$',
@@ -254,7 +239,7 @@ let s:ref = {
       \ 'labels' : [],
       \}
 
-function! s:ref.complete(regex) dict " {{{2
+function! s:completer_ref.complete(regex) dict " {{{2
   let self.candidates = []
 
   for m in self.get_matches(a:regex)
@@ -276,7 +261,7 @@ function! s:ref.complete(regex) dict " {{{2
   return self.candidates
 endfunction
 
-function! s:ref.get_matches(regex) dict " {{{2
+function! s:completer_ref.get_matches(regex) dict " {{{2
   call self.parse_aux_files()
 
   " Match number
@@ -301,10 +286,10 @@ function! s:ref.get_matches(regex) dict " {{{2
   return self.matches
 endfunction
 
-function! s:ref.parse_aux_files() dict " {{{2
+function! s:completer_ref.parse_aux_files() dict " {{{2
   let l:aux = b:vimtex.aux()
   if empty(l:aux)
-    return self.labels
+    return []
   endif
 
   let self.labels = []
@@ -326,7 +311,7 @@ function! s:ref.parse_aux_files() dict " {{{2
   return self.labels
 endfunction
 
-function! s:ref.parse_labels(file, prefix) dict " {{{2
+function! s:completer_ref.parse_labels(file, prefix) dict " {{{2
   "
   " Searches aux files recursively for commands of the form
   "
@@ -357,7 +342,7 @@ function! s:ref.parse_labels(file, prefix) dict " {{{2
   return l:labels
 endfunction
 
-function! s:ref.parse_number(num_tree) dict " {{{2
+function! s:completer_ref.parse_number(num_tree) dict " {{{2
   if type(a:num_tree) == type([])
     if len(a:num_tree) == 0
       return '-'
@@ -366,42 +351,122 @@ function! s:ref.parse_number(num_tree) dict " {{{2
       return self.parse_number(a:num_tree[l:index])
     endif
   else
-    return str2nr(a:num_tree) > 0 ? a:num_tree : '-'
+    let l:matches = matchlist(a:num_tree, '\v(^|.*\s)((\u|\d+)(\.\d+)*)($|\s.*)')
+    return len(l:matches) > 3 ? l:matches[2] : '-'
   endif
+endfunction
+
+" }}}1
+" {{{1 Commands
+
+let s:completer_cmd = {
+      \ 'patterns' : [
+      \   '\v\\\a*$',
+      \ ],
+      \ 'candidates_from_packages' : [],
+      \ 'complete_dir' : fnamemodify(expand('<sfile>'), ':r') . '/',
+      \ 'inside_braces' : 0,
+      \}
+
+function! s:completer_cmd.complete(regex) dict " {{{2
+  let l:candidates = self.gather_candidates()
+  let l:mode = vimtex#util#in_mathzone() ? 'm' : 'n'
+
+  call filter(l:candidates, 'v:val.word =~? ''^'' . a:regex')
+  call filter(l:candidates, 'l:mode =~# v:val.mode')
+
+  return l:candidates
+endfunction
+
+function! s:completer_cmd.gather_candidates() dict " {{{2
+  if empty(self.candidates_from_packages)
+    let self.candidates_from_packages = self.gather_candidates_from_packages()
+  endif
+
+  let l:candidates = extend(copy(self.candidates_from_packages),
+        \ self.gather_candidates_from_preamble())
+
+  call vimtex#util#uniq_unsorted(l:candidates)
+
+  return l:candidates
+endfunction
+
+function! s:completer_cmd.gather_candidates_from_packages() dict " {{{2
+  let l:save_pwd = getcwd()
+  execute 'lcd' fnameescape(self.complete_dir)
+
+  let l:packages = [
+        \ 'default',
+        \ 'class-' . get(b:vimtex, 'documentclass', ''),
+        \] + keys(b:vimtex.packages)
+  call filter(l:packages, 'filereadable(v:val)')
+
+  let l:queue = copy(l:packages)
+  while !empty(l:queue)
+    let l:current = remove(l:queue, 0)
+    let l:includes = filter(readfile(l:current), 'v:val =~# ''^\#\s*include:''')
+    if empty(l:includes) | continue | endif
+
+    call map(l:includes, 'matchstr(v:val, ''include:\s*\zs.*\ze\s*$'')')
+    call filter(l:includes, 'filereadable(v:val)')
+    call filter(l:includes, 'index(l:packages, v:val) < 0')
+
+    let l:packages += l:includes
+    let l:queue += l:includes
+  endwhile
+
+  let l:candidates_from_packages = []
+  for l:package in l:packages
+    let l:candidates = filter(readfile(l:package), 'v:val =~# ''^\a''')
+    call map(l:candidates, 'split(v:val)')
+    call map(l:candidates, '{
+          \ ''word'' : v:val[0],
+          \ ''mode'' : ''.'',
+          \ ''menu'' : ''[cmd: '' . l:package . ''] '' . (get(v:val, 1, '''')),
+          \}')
+    let l:candidates_from_packages += l:candidates
+  endfor
+
+  execute 'lcd' fnameescape(l:save_pwd)
+
+  return l:candidates_from_packages
+endfunction
+
+function! s:completer_cmd.gather_candidates_from_preamble() dict " {{{2
+  let l:candidates = vimtex#parser#tex(b:vimtex.tex, {
+        \ 'detailed' : 0,
+        \ 're_stop' : '\\begin\s*{document}',
+        \})
+
+  call filter(l:candidates, 'v:val =~# ''\v\\(re)?newcommand''')
+  call map(l:candidates, '{
+        \ ''word'' : matchstr(v:val, ''\v\\(re)?newcommand\{\\?\zs[^}]*''),
+        \ ''mode'' : ''.'',
+        \ ''menu'' : ''[cmd: newcommand]'',
+        \ }')
+
+  return l:candidates
 endfunction
 
 " }}}1
 " {{{1 Filenames (\includegraphics)
 
-let s:img = {
+let s:completer_img = {
       \ 'patterns' : ['\v\\includegraphics\*?%(\s*\[[^]]*\]){0,2}\s*\{[^}]*$'],
       \ 'ext_re' : '\v\.%('
       \   . join(['png', 'jpg', 'eps', 'pdf', 'pgf', 'tikz'], '|')
       \   . ')$',
       \}
 
-function! s:img.complete(regex) dict " {{{2
-  call self.get_graphicspaths()
+function! s:completer_img.complete(regex) dict " {{{2
   call self.gather_candidates()
 
-  call filter(self.candidates, 'v:val =~# a:regex')
-
-  call map(self.candidates, '{
-        \ ''abbr'' : v:val,
-        \ ''word'' : v:val,
-        \ ''menu'' : '' [graphics]'',
-        \ }')
-
-  if !empty(self.graphicspaths)
-    for l:cand in self.candidates
-      let l:cand.word = fnamemodify(l:cand.word, ':t')
-    endfor
-  endif
+  call filter(self.candidates, 'v:val.word =~# a:regex')
 
   return self.candidates
 endfunction
 
-function! s:img.get_graphicspaths() dict " {{{2
+function! s:completer_img.graphicspaths() dict " {{{2
   " Get preamble text and remove comments
   let l:preamble = vimtex#parser#tex(b:vimtex.tex, {
         \ 're_stop': '\\begin{document}',
@@ -409,36 +474,55 @@ function! s:img.get_graphicspaths() dict " {{{2
         \})
   call map(l:preamble, 'substitute(v:val, ''\\\@<!%.*'', '''', '''')')
 
-  " Parse preamble for graphicspath command
-  let l:graphicspath = matchstr(join(l:preamble, ' '),
-        \ '\\graphicspath{\s*{\s*\zs.\{-}\ze\s*}\s*}')
-  let self.graphicspaths = map(split(l:graphicspath, '}\s*{'),
-        \ 'v:val[0] ==# ''/'' ? v:val : simplify(b:vimtex.root . ''/'' . v:val)')
+  " Parse preamble for graphicspaths
+  let l:graphicspaths = []
+  for l:path in split(matchstr(join(l:preamble, ' '),
+        \ '\\graphicspath{\s*{\s*\zs.\{-}\ze\s*}\s*}'), '}\s*{')
+    if l:path[0] ==# '/'
+      call add(l:graphicspaths, l:path[:-2])
+    else
+      call add(l:graphicspaths, simplify(b:vimtex.root . '/' . l:path[:-2]))
+    endif
+  endfor
+
+  " Project root is always valid
+  return l:graphicspaths + [b:vimtex.root]
 endfunction
 
-function! s:img.gather_candidates() dict " {{{2
-  if !empty(self.graphicspaths)
-    let self.candidates = split(globpath(expand('%:p:h'), '*.*'), '\n')
-    for l:path in self.graphicspaths
-      let self.candidates += split(globpath(l:path, '*.*'), '\n')
-    endfor
-  else
-    let self.candidates = split(globpath(b:vimtex.root, '**/*.*'), '\n')
-  endif
+" }}}2
+function! s:completer_img.gather_candidates() dict " {{{2
+  let l:added_files = []
+  let l:generated_pdf = b:vimtex.out()
 
-  call filter(self.candidates, 'v:val !=# b:vimtex.out()')
-  call filter(self.candidates, 'v:val =~? self.ext_re')
-  call map(self.candidates, 'vimtex#paths#shorten_relative(v:val)')
+  let self.candidates = []
+  for l:path in self.graphicspaths()
+    for l:file in split(globpath(l:path, '**/*.*'), '\n')
+      if l:file !~? self.ext_re
+            \ || l:file ==# l:generated_pdf
+            \ || index(l:added_files, l:file) >= 0 | continue | endif
+
+      call add(l:added_files, l:file)
+
+      call add(self.candidates, {
+            \ 'abbr': vimtex#paths#shorten_relative(l:file),
+            \ 'word': vimtex#paths#relative(l:file, l:path),
+            \ 'menu': '[graphics]',
+            \})
+    endfor
+  endfor
 endfunction
 
 " }}}1
 " {{{1 Filenames (\input and \include)
 
-let s:inc = {
-      \ 'patterns' : ['\v\\%(include%(only)?|input)\s*\{[^}]*$'],
+let s:completer_inc = {
+      \ 'patterns' : [
+      \   g:vimtex#re#tex_input . '[^}]*$',
+      \   '\v\\includeonly\s*\{[^}]*$',
+      \ ],
       \}
 
-function! s:inc.complete(regex) dict " {{{2
+function! s:completer_inc.complete(regex) dict " {{{2
   let self.candidates = split(globpath(b:vimtex.root, '**/*.tex'), '\n')
   let self.candidates = map(self.candidates,
         \ 'strpart(v:val, len(b:vimtex.root)+1)')
@@ -454,11 +538,11 @@ endfunction
 " }}}1
 " {{{1 Filenames (\includepdf)
 
-let s:pdf = {
+let s:completer_pdf = {
       \ 'patterns' : ['\v\\includepdf%(\s*\[[^]]*\])?\s*\{[^}]*$'],
       \}
 
-function! s:pdf.complete(regex) dict " {{{2
+function! s:completer_pdf.complete(regex) dict " {{{2
   let self.candidates = split(globpath(b:vimtex.root, '**/*.pdf'), '\n')
   let self.candidates = map(self.candidates,
         \ 'strpart(v:val, len(b:vimtex.root)+1)')
@@ -474,11 +558,11 @@ endfunction
 " }}}1
 " {{{1 Filenames (\includestandalone)
 
-let s:sta = {
+let s:completer_sta = {
       \ 'patterns' : ['\v\\includestandalone%(\s*\[[^]]*\])?\s*\{[^}]*$'],
       \}
 
-function! s:sta.complete(regex) dict " {{{2
+function! s:completer_sta.complete(regex) dict " {{{2
   let self.candidates = substitute(globpath(b:vimtex.root, '**/*.tex'), '\.tex', '', 'g')
   let self.candidates = split(self.candidates, '\n')
   let self.candidates = map(self.candidates,
@@ -495,21 +579,20 @@ endfunction
 " }}}1
 " {{{1 Glossary
 
-let s:gls = {
+let s:completer_gls = {
       \ 'patterns' : ['\v\\(gls|Gls|GLS)(pl)?\s*\{[^}]*$'],
       \}
 
-function! s:gls.complete(regex) dict " {{{2
+function! s:completer_gls.complete(regex) dict " {{{2
   return self.parse_glossaries()
 endfunction
 
-function! s:gls.parse_glossaries() dict " {{{2
+function! s:completer_gls.parse_glossaries() dict " {{{2
   let self.candidates = []
 
   for l:line in filter(vimtex#parser#tex(b:vimtex.tex, {
         \   'detailed' : 0,
-        \   'input_re' :
-        \     '\v^\s*\\%(input|include|subimport|subfile|loadglsentries)\s*\{',
+        \   'input_re' : g:vimtex#re#tex_input . '|^\s*\\loadglsentries',
         \ }), 'v:val =~# ''\\newglossaryentry''')
     let l:entries = matchstr(l:line, '\\newglossaryentry\s*{\zs[^{}]*')
     call add(self.candidates, {
@@ -524,21 +607,83 @@ endfunction
 
 
 " }}}1
+" {{{1 Packages (\usepackage)
+
+let s:completer_pck = {
+      \ 'patterns' : ['\v\\usepackage%(\s*\[[^]]*\])?\s*\{[^}]*$'],
+      \ 'candidates' : [],
+      \}
+
+function! s:completer_pck.complete(regex) dict " {{{2
+  return filter(copy(self.gather_candidates()),
+        \ 'v:val.word =~# a:regex')
+endfunction
+
+function! s:completer_pck.gather_candidates() dict " {{{2
+  if empty(self.candidates)
+    let self.candidates = map(s:get_texmf_candidates('sty'), '{
+          \ ''word'' : v:val,
+          \ ''menu'' : '' [package]'',
+          \}')
+  endif
+
+  return self.candidates
+endfunction
+
+" }}}1
+" {{{1 Documentclasses (\documentclass)
+
+let s:completer_doc = {
+      \ 'patterns' : ['\v\\documentclass%(\s*\[[^]]*\])?\s*\{[^}]*$'],
+      \ 'candidates' : [],
+      \}
+
+function! s:completer_doc.complete(regex) dict " {{{2
+  return filter(copy(self.gather_candidates()),
+        \ 'v:val.word =~# a:regex')
+endfunction
+
+function! s:completer_doc.gather_candidates() dict " {{{2
+  if empty(self.candidates)
+    let self.candidates = map(s:get_texmf_candidates('cls'), '{
+          \ ''word'' : v:val,
+          \ ''menu'' : '' [documentclass]'',
+          \}')
+  endif
+
+  return self.candidates
+endfunction
+
+" }}}1
 
 "
 " Utility functions
 "
+function! s:get_texmf_candidates(filetype) " {{{1
+  " First add the locally installed candidates
+  let l:texmfhome = get(vimtex#kpsewhich#run('--var-value TEXMFHOME'), 0, 'XX')
+  let l:candidates = glob(l:texmfhome . '/**/*.' . a:filetype, 0, 1)
+  call map(l:candidates, 'fnamemodify(v:val, '':t:r'')')
+
+  " Then add the globally available candidates (based on ls-R files)
+  for l:file in vimtex#kpsewhich#run('--all ls-R')
+    let l:candidates += map(filter(readfile(l:file),
+          \   'v:val =~# ''\.' . a:filetype . ''''),
+          \ 'fnamemodify(v:val, '':r'')')
+  endfor
+
+  return l:candidates
+endfunction
+
+" }}}1
 function! s:close_braces(candidates) " {{{1
-  if g:vimtex_complete_close_braces
-        \ && strpart(getline('.'), col('.') - 1) !~# '^\s*[,}]'
-    let l:candidates = a:candidates
-    for l:cand in l:candidates
+  if strpart(getline('.'), col('.') - 1) !~# '^\s*[,}]'
+    for l:cand in a:candidates
       let l:cand.word .= '}'
     endfor
-    return l:candidates
-  else
-    return a:candidates
   endif
+
+  return a:candidates
 endfunction
 
 " }}}1
@@ -649,6 +794,15 @@ let s:tex2unicode_list = map([
       \ ['\\`n}'         , 'ǹ'],
       \ ['\\\~n}'        , 'ñ'],
       \], '[''\C\(\\IeC\s*{\)\?'' . v:val[0], v:val[1]]')
+
+" }}}1
+
+
+" {{{1 Initialize module
+
+let s:completers = map(
+      \ filter(items(s:), 'v:val[0] =~# ''^completer_'''),
+      \ 'v:val[1]')
 
 " }}}1
 

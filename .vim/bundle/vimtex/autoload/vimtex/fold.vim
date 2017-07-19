@@ -4,89 +4,6 @@
 " Email:      karl.yngve@gmail.com
 "
 
-function! vimtex#fold#init_options() " {{{1
-  call vimtex#util#set_default('g:vimtex_fold_enabled', 0)
-  call vimtex#util#set_default('g:vimtex_fold_manual', 0)
-  call vimtex#util#set_default('g:vimtex_fold_comments', 0)
-  call vimtex#util#set_default('g:vimtex_fold_levelmarker', '*')
-  call vimtex#util#set_default('g:vimtex_fold_preamble', 1)
-  call vimtex#util#set_default('g:vimtex_fold_envs', 1)
-  call vimtex#util#set_default('g:vimtex_fold_markers', 1)
-  call vimtex#util#set_default('g:vimtex_fold_parts',
-        \ [
-        \   'part',
-        \   'appendix',
-        \   'frontmatter',
-        \   'mainmatter',
-        \   'backmatter',
-        \ ])
-  call vimtex#util#set_default('g:vimtex_fold_sections',
-        \ [
-        \   'chapter',
-        \   'section',
-        \   'subsection',
-        \   'subsubsection',
-        \ ])
-  call vimtex#util#set_default('g:vimtex_fold_commands_default', {
-        \ 'hypersetup' : 'single',
-        \ 'tikzset' : 'single',
-        \ 'usepackage' : 'single_opt',
-        \ 'includepdf' : 'single_opt',
-        \ '%(re)?new%(command|environment)' : 'multi',
-        \ 'providecommand' : 'multi',
-        \ 'presetkeys' : 'multi',
-        \ 'Declare%(Multi|Auto)?CiteCommand' : 'multi',
-        \ 'Declare%(Index)?%(Field|List|Name)%(Format|Alias)' : 'multi',
-        \})
-
-  " Disable manual mode in vimdiff
-  let g:vimtex_fold_manual = &diff ? 0 : g:vimtex_fold_manual
-endfunction
-
-" }}}1
-function! vimtex#fold#init_script() " {{{1
-  let s:parts = '\v^\s*(\\|\% Fake)(' . join(g:vimtex_fold_parts, '|') . ')>'
-  let s:secs  = '\v^\s*(\\|\% Fake)(' . join(g:vimtex_fold_sections,  '|') . ')>'
-  let s:notbslash = '\%(\\\@<!\%(\\\\\)*\)\@<='
-  let s:notcomment = '\%(\%(\\\@<!\%(\\\\\)*\)\@<=%.*\)\@<!'
-
-  "
-  " Set up command fold structure
-  "
-  let s:cmds = extend(g:vimtex_fold_commands_default,
-        \ get(g:, 'vimtex_fold_commands', {}))
-  let s:cmd_types = []
-  let l:cmds_all = []
-  for l:type in ['single', 'single_opt', 'multi']
-    let l:cmds = keys(filter(copy(s:cmds), 'v:val ==# l:type'))
-    if !empty(l:cmds)
-      call extend(l:cmds_all, l:cmds)
-      call add(s:cmd_types, s:cmd_{l:type}(l:cmds))
-    endif
-  endfor
-
-  "
-  " List of identifiers for improving efficiency
-  "
-  let s:folded  = '\v'
-  let s:folded .= ' ^\s*\%'
-  let s:folded .= '|^\s*\]\{'
-  let s:folded .= '|^\s*}\s*$'
-  let s:folded .= '|^\s*\% Fake'
-  let s:folded .= '|\%%(.*\{\{\{|\s*\}\}\})'
-  let s:folded .= '|\\%(' . join([
-        \   'begin',
-        \   'end',
-        \   '%(sub)*%(section|paragraph)',
-        \   'chapter',
-        \   'documentclass',
-        \   '%(front|main|back)matter',
-        \   'appendix',
-        \   'part',
-        \ ] + l:cmds_all, '|') . ')'
-endfunction
-
-" }}}1
 function! vimtex#fold#init_buffer() " {{{1
   " b:vimtex_fold is a dictionary used to store dynamic fold information
   " Note: We define this even if folding is disabled, because people might want
@@ -166,7 +83,7 @@ function! vimtex#fold#level(lnum) " {{{1
   endif
 
   " Fold commands
-  for l:cmd in s:cmd_types
+  for l:cmd in s:cmds_types
     let l:value = l:cmd.level(line, a:lnum)
     if !empty(l:value) | return l:value | endif
   endfor
@@ -178,8 +95,17 @@ function! vimtex#fold#level(lnum) " {{{1
     endif
   endfor
 
-  " Fold comments
-  if g:vimtex_fold_comments
+  " Fold markers
+  if line =~# '\v\%.*\{\{\{'
+    let s:fold_markers = 1
+    return 'a1'
+  elseif line =~# '\v\%\s*\}\}\}'
+    let s:fold_markers = 0
+    return 's1'
+  endif
+
+  " Fold long comments
+  if g:vimtex_fold_comments && !get(s:, 'fold_markers')
     if line =~# '^\s*%'
       let l:next = getline(a:lnum-1) !~# '^\s*%'
       let l:prev = getline(a:lnum+1) !~# '^\s*%'
@@ -191,13 +117,6 @@ function! vimtex#fold#level(lnum) " {{{1
     endif
   endif
 
-  " Fold markers
-  if line =~# '\v\%.*\{\{\{'
-    return 'a1'
-  elseif line =~# '\v\%\s*\}\}\}'
-    return 's1'
-  endif
-
   " Never fold \end{document}
   if line =~# '^\s*\\end{document}'
     return 0
@@ -205,13 +124,19 @@ function! vimtex#fold#level(lnum) " {{{1
 
   " Fold environments
   if g:vimtex_fold_envs
-    if line =~# s:notcomment . s:notbslash . '\\begin\s*{.\{-}}'
-      if line !~# '\\end'
-        return 'a1'
-      endif
-    elseif line =~# s:notcomment . s:notbslash . '\\end\s*{.\{-}}'
-      if line !~# '\\begin'
-        return 's1'
+    let l:env = matchstr(line, s:env_name)
+    if !empty(l:env)
+          \ && (empty(g:vimtex_fold_env_whitelist)
+          \   || index(g:vimtex_fold_env_whitelist, l:env) >= 0)
+          \ && index(g:vimtex_fold_env_blacklist, l:env) < 0
+      if line =~# s:env_start
+        if line !~# '\\end'
+          return 'a1'
+        endif
+      elseif line =~# s:env_stop
+        if line !~# '\\begin'
+          return 's1'
+        endif
       endif
     endif
   endif
@@ -232,7 +157,7 @@ function! vimtex#fold#text() " {{{1
   endif
 
   " Text for various folded commands
-  for l:cmd in s:cmd_types
+  for l:cmd in s:cmds_types
     if line =~# l:cmd.re.start
       return l:cmd.text(line)
     endif
@@ -309,16 +234,16 @@ endfunction
 " }}}1
 
 function! s:foldmethod_in_modeline() " {{{1
-  let l:cursor_pos = getpos('.')
+  let l:cursor_pos = vimtex#pos#get_cursor()
   let l:fdm_modeline = 'vim:.*\%(foldmethod\|fdm\)'
 
-  call cursor(1, 1)
+  call vimtex#pos#set_cursor(1, 1)
   let l:check_top = search(l:fdm_modeline, 'cn', &modelines)
 
   normal! G$
   let l:check_btm = search(l:fdm_modeline, 'b', line('$') + 1 - &modelines)
 
-  call setpos('.', l:cursor_pos)
+  call vimtex#pos#set_cursor(l:cursor_pos)
   return l:check_top || l:check_btm
 endfunction
 
@@ -378,7 +303,7 @@ endfunction
 " }}}1
 
 function! s:cmd_single(cmds) " {{{1
-  let l:re = '\v^\s*\\%(' . join(a:cmds, '|') . ')\*?'
+  let l:re = '\v^\s*\\%(' . join(a:cmds, '|') . ')\*?\s*%(\[.*\])?'
 
   let l:fold = {}
   let l:fold.re = {
@@ -401,6 +326,7 @@ function! s:cmd_single(cmds) " {{{1
 
   function! l:fold.text(line) dict
     return matchstr(a:line, self.re.text) . '{...}'
+          \ . substitute(getline(v:foldend), self.re.end, '', '')
   endfunction
 
   return l:fold
@@ -430,8 +356,9 @@ function! s:cmd_single_opt(cmds) " {{{1
   endfunction
 
   function! l:fold.text(line) dict
+    let l:col = strlen(matchstr(a:line, '^\s*')) + 1
     return matchstr(a:line, self.re.text) . '[...]{'
-          \ . vimtex#cmd#get_at(v:foldstart, 1).args[0].text . '}'
+          \ . vimtex#cmd#get_at(v:foldstart, l:col).args[0].text . '}'
   endfunction
 
   return l:fold
@@ -445,7 +372,36 @@ function! s:cmd_multi(cmds) " {{{1
   let l:fold.re = {
         \ 'start' : l:re . '.*(\{|\[)\s*(\%.*)?$',
         \ 'end' : '^\s*}\s*$',
-        \ 'text' : l:re . '\{[^}]*\}'
+        \ 'text' : l:re . '\{[^}]*\}',
+        \}
+  let l:fold.opened = 0
+
+  function! l:fold.level(line, lnum) dict
+    if a:line =~# self.re.start
+      let self.opened += 1
+      return 'a1'
+    elseif self.opened > 0 && a:line =~# self.re.end
+      let self.opened -= 1
+      return 's1'
+    endif
+    return ''
+  endfunction
+
+  function! l:fold.text(line) dict
+    return a:line
+  endfunction
+
+  return l:fold
+endfunction
+
+" }}}1
+function! s:cmd_addplot(cmds) " {{{1
+  let l:re = '\v^\s*\\%(' . join(a:cmds, '|') . ')\s*%(\[[^\]]*\])?'
+
+  let l:fold = {}
+  let l:fold.re = {
+        \ 'start' : l:re . '\s*\w+\s*%(\[[^\]]*\])?\s*\ze\{\s*%($|\%)',
+        \ 'end' : '^\s*}',
         \}
 
   function! l:fold.level(line, lnum) dict
@@ -461,7 +417,8 @@ function! s:cmd_multi(cmds) " {{{1
   endfunction
 
   function! l:fold.text(line) dict
-    return matchstr(a:line, self.re.text) . ' ...'
+    return matchstr(a:line, self.re.start) . '{...}'
+          \ . substitute(getline(v:foldend), self.re.end, '', '')
   endfunction
 
   return l:fold
@@ -473,7 +430,7 @@ function! s:parse_label() " {{{1
   let i = v:foldend
   while i >= v:foldstart
     if getline(i) =~# '^\s*\\label'
-      return matchstr(getline(i), '^\s*\\label{\zs.*\ze}')
+      return matchstr(getline(i), '^\s*\\label\%(\[.*\]\)\?{\zs.*\ze}')
     end
     let i -= 1
   endwhile
@@ -552,6 +509,61 @@ function! s:parse_sec_title(string, type) " {{{1
   endwhile
   return strpart(a:string, 0, l:idx)
 endfunction
+
+" }}}1
+
+
+" {{{1 Initialize module
+
+let s:parts = '\v^\s*(\\|\% Fake)(' . join(g:vimtex_fold_parts, '|') . ')>'
+let s:secs  = '\v^\s*(\\|\% Fake)(' . join(g:vimtex_fold_sections,  '|') . ')>'
+let s:env_name = g:vimtex#re#not_comment . g:vimtex#re#not_bslash
+      \ . '\\%(begin|end)\s*\{\zs.{-}\ze\}'
+let s:env_start = g:vimtex#re#not_comment . g:vimtex#re#not_bslash
+      \ . '\\begin\s*\{.{-}\}'
+let s:env_stop = g:vimtex#re#not_comment . g:vimtex#re#not_bslash
+      \ . '\\end\s*\{.{-}\}'
+
+"
+" Set up command fold structure
+"
+function! s:init_cmds() " {{{2
+  let s:cmds = extend(g:vimtex_fold_commands_default,
+        \ get(g:, 'vimtex_fold_commands', {}))
+  let s:cmds_types = []
+  let s:cmds_all = []
+
+  for l:type in ['single', 'single_opt', 'multi', 'addplot']
+    let l:cmds = keys(filter(copy(s:cmds), 'v:val ==# l:type'))
+    if !empty(l:cmds)
+      call extend(s:cmds_all, l:cmds)
+      call add(s:cmds_types, s:cmd_{l:type}(l:cmds))
+    endif
+  endfor
+endfunction
+
+" }}}2
+
+call s:init_cmds()
+
+"
+" List of identifiers for improving efficiency
+"
+let s:folded  = '\v'
+let s:folded .=  '^\s*\%'
+let s:folded .= '|^\s*\]\{'
+let s:folded .= '|^\s*}'
+let s:folded .= '|\%%(.*\{\{\{|\s*\}\}\})'
+let s:folded .= '|\\%(' . join([
+      \   'begin',
+      \   'end',
+      \   '%(sub)*%(section|paragraph)',
+      \   'chapter',
+      \   'documentclass',
+      \   '%(front|main|back)matter',
+      \   'appendix',
+      \   'part',
+      \ ] + s:cmds_all, '|') . ')'
 
 " }}}1
 
